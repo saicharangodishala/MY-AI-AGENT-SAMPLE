@@ -1,20 +1,46 @@
 """
-LangGraph Agent with BODMA and CODMA Mathematical Tools
+FastAPI application for LangGraph Agent with BODMA and CODMA Mathematical Tools
 """
 
-from typing import Annotated, Literal
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Dict, Any
 import os
 from typing_extensions import TypedDict
+from typing import Annotated, Literal
+
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.tools import tool
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
+# Initialize FastAPI app
+app = FastAPI(
+    title="LangGraph BODMA/CODMA Agent API",
+    description="API for mathematical calculations using BODMA and CODMA tools",
+    version="1.0.0"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Get API key from environment
 google_key = os.getenv("GOOGLE_API_KEY")
+
+if not google_key:
+    raise ValueError("GOOGLE_API_KEY environment variable is not set")
 
 # Define the tools
 @tool
@@ -34,7 +60,6 @@ def BODMA(a: float, b: float) -> float:
     
     result = (a ** b) / (a * b)
     return result
-
 
 @tool
 def CODMA(a: float, b: float) -> float:
@@ -58,7 +83,6 @@ def CODMA(a: float, b: float) -> float:
 class State(TypedDict):
     messages: Annotated[list, add_messages]
 
-
 # Initialize the tools list
 tools = [BODMA, CODMA]
 
@@ -70,7 +94,6 @@ llm = ChatGoogleGenerativeAI(
     google_api_key=google_key
 )
 llm_with_tools = llm.bind_tools(tools)
-
 
 # Define the agent node
 def agent(state: State):
@@ -141,74 +164,95 @@ def create_agent_graph():
     workflow.add_edge("tools", "agent")
     
     # Compile the graph
-    app = workflow.compile()
-    return app
+    app_graph = workflow.compile()
+    return app_graph
 
-# Main execution
-def main():
-    """Run the agent with example queries"""
-    app = create_agent_graph()
-    
-    print("=" * 60)
-    print("LangGraph Agent with BODMA and CODMA Tools")
-    print("=" * 60)
-    
-    # Example 1: Using BODMA
-    print("\n📊 Example 1: Calculate BODMA for a=2, b=3")
-    print("-" * 60)
-    
+# Initialize the agent graph once at startup
+agent_graph = create_agent_graph()
 
-    result = app.invoke({
-        "messages": [HumanMessage(content="Calculate BODMA for a=2 and b=3")]
-    })
+# Request and Response models
+class ChatRequest(BaseModel):
+    message: str
     
-    for message in result["messages"]:
-        if isinstance(message, AIMessage):
-            print(f"🤖 Agent: {message.content}")
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "message": "Calculate BODMA for a=2 and b=3"
+            }
+        }
+
+class ChatResponse(BaseModel):
+    response: str
+    success: bool
     
-    # Example 2: Using CODMA
-    print("\n📊 Example 2: Calculate CODMA for a=2, b=3")
-    print("-" * 60)
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "response": "The BODMA calculation for a=2 and b=3 is 1.333",
+                "success": True
+            }
+        }
+
+# API Endpoints
+@app.get("/")
+async def root():
+    """Root endpoint with API information"""
+    return {
+        "message": "LangGraph BODMA/CODMA Agent API",
+        "version": "1.0.0",
+        "endpoints": {
+            "/chat": "POST - Send a message to the agent",
+            "/health": "GET - Check API health status"
+        }
+    }
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "LangGraph Agent API"
+    }
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """
+    Chat endpoint to interact with the LangGraph agent
     
-    result = app.invoke({
-        "messages": [HumanMessage(content="Calculate CODMA for a=2 and b=3")]
-    })
+    Send a message and get a response from the agent that can use BODMA and CODMA tools.
     
-    for message in result["messages"]:
-        if isinstance(message, AIMessage):
-            print(f"🤖 Agent: {message.content}")
-    
-    # Example 3: Using both tools
-    print("\n📊 Example 3: Compare BODMA and CODMA for a=3, b=2")
-    print("-" * 60)
-    
-    result = app.invoke({
-        "messages": [HumanMessage(content="Calculate both BODMA and CODMA for a=3 and b=2, then compare the results")]
-    })
-    
-    for message in result["messages"]:
-        if isinstance(message, AIMessage):
-            print(f"🤖 Agent: {message.content}")
-    
-    # Interactive mode
-    print("\n" + "=" * 60)
-    print("Interactive Mode - Type 'quit' to exit")
-    print("=" * 60)
-    
-    while True:
-        user_input = input("\n💬 You: ")
-        if user_input.lower() in ['quit', 'exit', 'q']:
-            print("Goodbye! 👋")
-            break
-        
-        result = app.invoke({
-            "messages": [HumanMessage(content=user_input)]
+    Example requests:
+    - "Calculate BODMA for a=2 and b=3"
+    - "Calculate CODMA for a=5 and b=2"
+    - "Compare BODMA and CODMA for a=3 and b=2"
+    """
+    try:
+        # Invoke the agent with the user's message
+        result = agent_graph.invoke({
+            "messages": [HumanMessage(content=request.message)]
         })
         
+        # Extract the final AI response
+        response_text = ""
         for message in result["messages"]:
-            if isinstance(message, AIMessage):
-                print(f"🤖 Agent: {message.content}")
+            if isinstance(message, AIMessage) and message.content:
+                response_text = message.content
+        
+        if not response_text:
+            response_text = "I processed your request but didn't generate a text response."
+        
+        return ChatResponse(
+            response=response_text,
+            success=True
+        )
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing request: {str(e)}"
+        )
 
-
-        if __name__ == "__main__":
-            main()
+# Run with: uvicorn app:app --host 0.0.0.0 --port 8000
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
