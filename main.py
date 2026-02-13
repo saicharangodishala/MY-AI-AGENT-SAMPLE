@@ -13,9 +13,10 @@ from langchain_core.tools import tool
 from dotenv import load_dotenv
 
 load_dotenv()
+
 google_key = os.getenv("GOOGLE_API_KEY")
 
-# Define the tools for this agent
+# Define the tools
 @tool
 def BODMA(a: float, b: float) -> float:
     """
@@ -53,7 +54,6 @@ def CODMA(a: float, b: float) -> float:
     result = (a * b) / (a ** b)
     return result
 
-
 # Define the state
 class State(TypedDict):
     messages: Annotated[list, add_messages]
@@ -78,7 +78,6 @@ def agent(state: State):
     messages = state["messages"]
     response = llm_with_tools.invoke(messages)
     return {"messages": [response]}
-
 
 # Define the tool node
 def tool_node(state: State):
@@ -108,7 +107,6 @@ def tool_node(state: State):
     
     return {"messages": outputs}
 
-
 # Define routing logic
 def should_continue(state: State) -> Literal["tools", "end"]:
     """Determine whether to continue to tools or end"""
@@ -120,7 +118,6 @@ def should_continue(state: State) -> Literal["tools", "end"]:
         return "tools"
     # Otherwise, end
     return "end"
-
 
 # Build the graph
 def create_agent_graph():
@@ -147,7 +144,6 @@ def create_agent_graph():
     app = workflow.compile()
     return app
 
-
 # Main execution
 def main():
     """Run the agent with example queries"""
@@ -161,6 +157,7 @@ def main():
     print("\n📊 Example 1: Calculate BODMA for a=2, b=3")
     print("-" * 60)
     
+
     result = app.invoke({
         "messages": [HumanMessage(content="Calculate BODMA for a=2 and b=3")]
     })
@@ -213,5 +210,5 @@ def main():
                 print(f"🤖 Agent: {message.content}")
 
 
-if __name__ == "__main__":
-    main()
+        if __name__ == "__main__":
+            main()
